@@ -454,23 +454,26 @@
 
   <!-- DEV YEŞİL PUAN KARTI ALANI -->
   <div class="puan-kart-alani" id="alan-puan-karti">
-    <div class="dev-puan-karti" id="kart-dev-puan">
+    <div id="kart-bekleme" style="text-align:center;padding:20px 14px;color:var(--soluk);font-size:12.5px;background:var(--kart);border-radius:18px;border:1px dashed var(--cizgi)">
+      📄 Sınav kâğıdını çerçeveye tutun veya <strong>✨ Test Et</strong> düğmesine dokunarak test edin.
+    </div>
+    <div class="dev-puan-karti" id="kart-dev-puan" style="display:none">
       <div class="puan-kart-ust">
         <div class="ogrenci-kimlik">
-          <div class="ogrenci-no-buyuk" id="lbl-ogr-no">257419026</div>
-          <div class="ogrenci-ad" id="lbl-ogr-ad">Mehmet Kaya</div>
+          <div class="ogrenci-no-buyuk" id="lbl-ogr-no">-</div>
+          <div class="ogrenci-ad" id="lbl-ogr-ad">Öğrenci</div>
         </div>
         <div class="grup-rozet" id="lbl-grup-rozet">● A GRUBU ✓</div>
       </div>
       <div class="dev-puan-deger">
-        <span id="lbl-puan-sayi">86</span>
-        <span class="puan-yuz">/ 100</span>
+        <span id="lbl-puan-sayi">0</span>
+        <span class="puan-yuz" id="lbl-puan-payda">/ 100</span>
       </div>
       <div class="puan-detay-satir">
-        <span id="lbl-detay-dy">3A Doğru/Yanlış: 9/10 (36p)</span>
-        <span id="lbl-detay-cs">3B Test: 8/10 (50p)</span>
+        <span id="lbl-detay-dy">D/Y: 0/10 (0p)</span>
+        <span id="lbl-detay-cs">Test: 0/10 (0p)</span>
       </div>
-      <div class="notu-yaz-uyari">
+      <div class="notu-yaz-uyari" id="lbl-notu-yaz">
         ✍️ Notu kağıdın üzerine kırmızı kalemle yazıp sıradaki kağıda geçebilirsiniz.
       </div>
     </div>
@@ -581,9 +584,34 @@
     gecmisTabloGuncelle();
   }
 
+  function esc(s) {
+    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function base64ToUtf8(b64) {
+    try {
+      const binStr = atob(b64);
+      const bytes = Uint8Array.from(binStr, c => c.charCodeAt(0));
+      if (typeof TextDecoder !== 'undefined') {
+        return new TextDecoder('utf-8').decode(bytes);
+      }
+      return decodeURIComponent(escape(binStr));
+    } catch (e) {
+      return decodeURIComponent(escape(atob(b64)));
+    }
+  }
+
   function sinavKaydet(veri) {
+    if (!veri) return;
+    const eskiSinavAd = aktifSinav ? (aktifSinav.sinav || '') : '';
     aktifSinav = veri;
     localStorage.setItem(DEPO_SINAV, JSON.stringify(veri));
+    if (veri.sinav && veri.sinav !== eskiSinavAd) {
+      tarananGecmis = [];
+      if (typeof localStorage.removeItem === 'function') localStorage.removeItem(DEPO_GECMIS);
+      else localStorage.setItem(DEPO_GECMIS, '[]');
+      gecmisTabloGuncelle();
+    }
     sinavBilgiGuncelle();
   }
 
@@ -610,7 +638,7 @@
     if (hash.startsWith('#setup=')) {
       try {
         const raw = decodeURIComponent(hash.slice(7));
-        const jsonStr = atob(raw);
+        const jsonStr = base64ToUtf8(raw);
         const veri = JSON.parse(jsonStr);
         sinavKaydet(veri);
         window.history.replaceState(null, '', window.location.pathname);
@@ -627,10 +655,14 @@
 
   // 3) PUAN HESAPLAMA MOTORU
   function optikPuanHesapla(grupHarf, dyDizi, csDizi) {
-    if (!aktifSinav) return { puan: 0, dyD: 0, dyT: 0, csD: 0, csT: 0 };
-    const gAnahtar = aktifSinav[grupHarf] || aktifSinav.A || { dy: '', cs: '' };
-    const pDy = Number(aktifSinav.puan_dy) || 4;
-    const pCs = Number(aktifSinav.puan_cs) || 6;
+    if (!aktifSinav) return { toplamPuan: 0, dyDogru: 0, dyToplam: 0, dyPuan: 0, csDogru: 0, csToplam: 0, csPuan: 0 };
+    const gAnahtar = (aktifSinav[grupHarf] || (grupHarf === 'A' ? aktifSinav.A : (grupHarf === 'B' ? aktifSinav.B : null)));
+    if (!gAnahtar) {
+      return { toplamPuan: 0, dyDogru: 0, dyToplam: 0, dyPuan: 0, csDogru: 0, csToplam: 0, csPuan: 0, gecersizGrup: true };
+    }
+
+    const pDy = (aktifSinav.puan_dy !== undefined && aktifSinav.puan_dy !== null && !isNaN(Number(aktifSinav.puan_dy))) ? Number(aktifSinav.puan_dy) : 3;
+    const pCs = (aktifSinav.puan_cs !== undefined && aktifSinav.puan_cs !== null && !isNaN(Number(aktifSinav.puan_cs))) ? Number(aktifSinav.puan_cs) : 4;
 
     let dyDogru = 0;
     const dyHedef = gAnahtar.dy || '';
@@ -644,15 +676,22 @@
       if (csDizi[i] && csDizi[i] === csHedef[i]) csDogru++;
     }
 
-    const toplamPuan = Math.min(100, (dyDogru * pDy) + (csDogru * pCs));
+    const dyPuan = +(dyDogru * pDy).toFixed(2);
+    const csPuan = +(csDogru * pCs).toFixed(2);
+    const toplamPuan = +(dyPuan + csPuan).toFixed(2);
+    const optikTam = Number(aktifSinav.optik_tam_puan) || +(dyHedef.length * pDy + csHedef.length * pCs).toFixed(2);
+    const simTam = Number(aktifSinav.sim_tam_puan) || 0;
+
     return {
       toplamPuan,
       dyDogru,
       dyToplam: dyHedef.length,
-      dyPuan: dyDogru * pDy,
+      dyPuan,
       csDogru,
       csToplam: csHedef.length,
-      csPuan: csDogru * pCs
+      csPuan,
+      optikTamPuan: optikTam,
+      simTamPuan: simTam
     };
   }
 
@@ -662,8 +701,13 @@
     document.getElementById('lbl-ogr-ad').textContent = kayit.ad;
     document.getElementById('lbl-grup-rozet').textContent = `● ${kayit.grup} GRUBU ✓`;
     document.getElementById('lbl-puan-sayi').textContent = kayit.puan;
+    const paydaEl = document.getElementById('lbl-puan-payda');
+    if (paydaEl) paydaEl.textContent = kayit.simTamPuan ? `/ 100` : `/ ${kayit.optikTamPuan || 100}`;
     document.getElementById('lbl-detay-dy').textContent = `3A D/Y: ${kayit.dyDogru}/${kayit.dyToplam} (${kayit.dyPuan}p)`;
     document.getElementById('lbl-detay-cs').textContent = `3B Test: ${kayit.csDogru}/${kayit.csToplam} (${kayit.csPuan}p)`;
+
+    const bekleme = document.getElementById('kart-bekleme');
+    if (bekleme) bekleme.style.display = 'none';
 
     const kart = document.getElementById('kart-dev-puan');
     kart.style.display = 'block';
@@ -687,7 +731,7 @@
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'btn-aday' + (ztnOkundu ? ' okundu' : '');
-      btn.innerHTML = `<span><b>${ad.no}</b> — ${ad.ad}</span> <span>${ztnOkundu ? '✓ Zaten Okundu' : '👉 Seç & Puanla'}</span>`;
+      btn.innerHTML = `<span><b>${esc(ad.no)}</b> — ${esc(ad.ad)}</span> <span>${ztnOkundu ? '✓ Zaten Okundu' : '👉 Seç & Puanla'}</span>`;
       btn.onclick = () => {
         kagitKaydetVeGoster(ad.no, ad.ad, grup, dyDizi, csDizi);
       };
@@ -711,6 +755,8 @@
       csDogru: skor.csDogru,
       csToplam: skor.csToplam,
       csPuan: skor.csPuan,
+      optikTamPuan: skor.optikTamPuan,
+      simTamPuan: skor.simTamPuan,
       dyDizi: dyDizi,
       csDizi: csDizi,
       saat: new Date().toLocaleTimeString('tr-TR', { hour12: false })
@@ -738,8 +784,8 @@
     kutu.innerHTML = tarananGecmis.map(g => `
       <div class="gecmis-kart">
         <div class="gecmis-sol">
-          <div class="gecmis-no">${g.no} — ${g.ad}</div>
-          <div style="color:var(--soluk);font-size:11px">${g.grup} Grubu · D/Y: ${g.dyDogru}/${g.dyToplam} · Test: ${g.csDogru}/${g.csToplam} · ${g.saat}</div>
+          <div class="gecmis-no">${esc(g.no)} — ${esc(g.ad)}</div>
+          <div style="color:var(--soluk);font-size:11px">${esc(g.grup)} Grubu · D/Y: ${g.dyDogru}/${g.dyToplam} · Test: ${g.csDogru}/${g.csToplam} · ${esc(g.saat)}</div>
         </div>
         <div class="gecmis-puan">${g.puan}</div>
       </div>
