@@ -860,18 +860,22 @@
     return say > 0 ? (top / say) : 0;
   }
 
-  // 4 köşe hizalama karesini (fiducial) ilgili kadranlarda dinamik tarayarak bulur ve perspektif/bilinear dönüşüm kurar
+  // 4 köşe hizalama karesini (fiducial) ilgili kadranlarda çok ölçekli (18x18px ve 24x22px) dinamik tarayarak bulur
+  function fiducialParlaklikOlc(d, w, h, rx, ry) {
+    const p18 = bolgeParlaklikOrt(d, w, h, rx, ry, 0.035, 0.05);
+    const p24 = bolgeParlaklikOrt(d, w, h, rx, ry, 0.05, 0.07);
+    return Math.min(p18, p24);
+  }
+
   function koseFiducialBul(d, w, h, xMin, xMax, yMin, yMax, beklenenX, beklenenY) {
-    const fw = 0.05;
-    const fh = 0.07;
-    const dogrudan = bolgeParlaklikOrt(d, w, h, beklenenX, beklenenY, fw, fh);
+    const dogrudan = fiducialParlaklikOlc(d, w, h, beklenenX, beklenenY);
     if (dogrudan < 95) {
       return { rx: beklenenX, ry: beklenenY, parlaklik: dogrudan };
     }
     let enIyi = { rx: beklenenX, ry: beklenenY, parlaklik: dogrudan };
     for (let ry = yMin; ry <= yMax; ry += 0.02) {
       for (let rx = xMin; rx <= xMax; rx += 0.02) {
-        const p = bolgeParlaklikOrt(d, w, h, rx, ry, fw, fh);
+        const p = fiducialParlaklikOlc(d, w, h, rx, ry);
         if (p < enIyi.parlaklik) {
           enIyi = { rx, ry, parlaklik: p };
         }
@@ -1095,7 +1099,7 @@
       return;
     }
     const sinavKimlik = (aktifSinav && aktifSinav.sinavId) || 'SINAV-V1';
-    const paket = tarananGecmis.map(g => `${g.no}|${g.grup}|${g.dyDizi}|${g.csDizi}|${g.puan}|${sinavKimlik}`).join('\n');
+    const paket = tarananGecmis.map(g => `${g.no}|${g.grup}|${g.dyDizi}|${g.csDizi}|${g.puan}|${sinavKimlik}|${g.durum || (g.cokluIsaretUyarisi ? 'inceleme_bekliyor' : 'onaylandi')}`).join('\n');
     navigator.clipboard.writeText(paket).then(() => {
       alert(`✅ ${tarananGecmis.length} Öğrencinin Not Paketi Kopyalandı!\nBilgisayarınızdaki «📥 Toplu Optik Paketi Aktar» kutusuna yapıştırabilirsiniz.`);
     }).catch(() => {
