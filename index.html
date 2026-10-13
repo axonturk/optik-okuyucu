@@ -1,0 +1,839 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Web Güvenliği — Mobil Optik Okuyucu & Puanlama Asistanı</title>
+<style>
+  :root {
+    --arka: #090d16;
+    --kart: #131c2e;
+    --kart2: #1e293b;
+    --vurgu: #10b981;
+    --vurgu-mavi: #0284c7;
+    --yazi: #f8fafc;
+    --soluk: #94a3b8;
+    --cizgi: #334155;
+    --kirmizi: #ef4444;
+    --sari: #f59e0b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body {
+    background: var(--arka);
+    color: var(--yazi);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    min-height: 100vh;
+    padding-bottom: 40px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ÜST BAŞLIK */
+  header {
+    background: var(--kart);
+    border-bottom: 1px solid var(--cizgi);
+    padding: 12px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+  }
+  .baslik-sol {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .app-adi {
+    font-size: 15px;
+    font-weight: 800;
+    color: #38bdf8;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .sinav-adi {
+    font-size: 11.5px;
+    color: var(--soluk);
+    max-width: 220px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ust-butonlar {
+    display: flex;
+    gap: 6px;
+  }
+  .btn-ikon {
+    background: var(--kart2);
+    border: 1px solid var(--cizgi);
+    color: var(--yazi);
+    font-size: 12px;
+    font-weight: 700;
+    padding: 6px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .btn-ikon.birincil {
+    background: #059669;
+    border-color: #10b981;
+    color: #fff;
+  }
+
+  /* KAMERA VİZÖR ALANI */
+  .vizor-kapsayici {
+    position: relative;
+    width: 100%;
+    background: #000;
+    overflow: hidden;
+    aspect-ratio: 4 / 3;
+    max-height: 52vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  canvas#omr-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+
+  /* HİZALAMA KILAVUZU */
+  .reticle-cerceve {
+    position: absolute;
+    top: 10%;
+    left: 8%;
+    right: 8%;
+    bottom: 10%;
+    border: 2px dashed rgba(56, 189, 248, 0.6);
+    border-radius: 12px;
+    pointer-events: none;
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
+  }
+  .reticle-kose {
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    border-color: #38bdf8;
+    border-style: solid;
+  }
+  .reticle-kose.tl { top: -2px; left: -2px; border-width: 3px 0 0 3px; border-top-left-radius: 6px; }
+  .reticle-kose.tr { top: -2px; right: -2px; border-width: 3px 3px 0 0; border-top-right-radius: 6px; }
+  .reticle-kose.bl { bottom: -2px; left: -2px; border-width: 0 0 3px 3px; border-bottom-left-radius: 6px; }
+  .reticle-kose.br { bottom: -2px; right: -2px; border-width: 0 3px 3px 0; border-bottom-right-radius: 6px; }
+
+  .reticle-bilgi {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(15, 23, 42, 0.85);
+    backdrop-filter: blur(4px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #e2e8f0;
+    font-size: 11.5px;
+    font-weight: 700;
+    padding: 4px 12px;
+    border-radius: 999px;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
+  /* KAMERA KONTROL ÇUBUĞU */
+  .kamera-araclar {
+    background: var(--kart);
+    border-bottom: 1px solid var(--cizgi);
+    padding: 8px 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .durum-metin {
+    font-size: 12px;
+    font-weight: 700;
+    color: #34d399;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  /* DEV YEŞİL PUAN KARTI (NOTU GÖR & KAĞIDA YAZ) */
+  .puan-kart-alani {
+    padding: 12px 14px;
+  }
+  .dev-puan-karti {
+    background: linear-gradient(135deg, #064e3b 0%, #065f46 100%);
+    border: 2px solid #34d399;
+    border-radius: 16px;
+    padding: 16px 18px;
+    color: #ffffff;
+    box-shadow: 0 10px 25px rgba(5, 150, 105, 0.35);
+    animation: kartPari 0.3s ease;
+  }
+  @keyframes kartPari {
+    0% { transform: scale(0.96); opacity: 0.8; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  .puan-kart-ust {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 8px;
+  }
+  .ogrenci-kimlik {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .ogrenci-no-buyuk {
+    font-size: 20px;
+    font-weight: 900;
+    font-family: 'Consolas', monospace;
+    letter-spacing: 1px;
+    color: #fef08a;
+  }
+  .ogrenci-ad {
+    font-size: 14px;
+    font-weight: 800;
+    color: #f8fafc;
+  }
+  .grup-rozet {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1.5px solid #a7f3d0;
+    color: #a7f3d0;
+    font-size: 12px;
+    font-weight: 900;
+    padding: 4px 10px;
+    border-radius: 999px;
+  }
+  .dev-puan-deger {
+    font-size: 42px;
+    font-weight: 950;
+    line-height: 1;
+    margin: 6px 0 10px;
+    color: #ffffff;
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+  }
+  .puan-yuz {
+    font-size: 20px;
+    font-weight: 700;
+    color: #a7f3d0;
+  }
+  .puan-detay-satir {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 12.5px;
+    font-weight: 700;
+  }
+  .notu-yaz-uyari {
+    margin-top: 10px;
+    background: rgba(254, 240, 138, 0.2);
+    border: 1px dashed #fef08a;
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 11.5px;
+    color: #fef08a;
+    text-align: center;
+    font-weight: 700;
+  }
+
+  /* ÇAKIŞMA SEÇİM MODALI / SHEET */
+  .cakisma-alani {
+    margin-top: 10px;
+    background: #1e293b;
+    border: 2px solid #f59e0b;
+    border-radius: 14px;
+    padding: 12px 14px;
+    animation: kartPari 0.25s ease;
+  }
+  .cakisma-baslik {
+    font-size: 13px;
+    font-weight: 900;
+    color: #fde68a;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .cakisma-butonlar {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .btn-aday {
+    background: #0f172a;
+    border: 1.5px solid #475569;
+    color: #f8fafc;
+    border-radius: 10px;
+    padding: 11px 14px;
+    font-size: 13.5px;
+    font-weight: 800;
+    text-align: left;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+  }
+  .btn-aday.okundu {
+    opacity: 0.5;
+    border-style: dashed;
+    color: #94a3b8;
+  }
+  .btn-aday:active {
+    background: #10b981;
+    border-color: #34d399;
+  }
+
+  /* GEÇMİŞ LİSTESİ */
+  .gecmis-alani {
+    padding: 0 14px;
+    margin-top: 8px;
+  }
+  .gecmis-baslik-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .gecmis-baslik {
+    font-size: 13px;
+    font-weight: 800;
+    color: #94a3b8;
+  }
+  .gecmis-liste {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 280px;
+    overflow-y: auto;
+  }
+  .gecmis-kart {
+    background: var(--kart);
+    border: 1px solid var(--cizgi);
+    border-radius: 10px;
+    padding: 8px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+  }
+  .gecmis-sol {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .gecmis-no {
+    font-family: 'Consolas', monospace;
+    font-weight: 800;
+    color: #38bdf8;
+    font-size: 13px;
+  }
+  .gecmis-puan {
+    font-size: 16px;
+    font-weight: 900;
+    color: #34d399;
+  }
+
+  /* MODAL */
+  .modal-perde {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(5px);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+  .modal-kutu {
+    background: var(--kart);
+    border: 1px solid var(--cizgi);
+    border-radius: 16px;
+    max-width: 480px;
+    width: 100%;
+    padding: 18px;
+    max-height: 85vh;
+    overflow-y: auto;
+  }
+  .modal-baslik {
+    font-size: 16px;
+    font-weight: 900;
+    color: #38bdf8;
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  textarea.kod-kutu {
+    width: 100%;
+    height: 110px;
+    background: var(--arka);
+    border: 1px solid var(--cizgi);
+    color: #e2e8f0;
+    font-family: 'Consolas', monospace;
+    font-size: 12px;
+    padding: 10px;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    resize: none;
+  }
+  .btn-genis {
+    width: 100%;
+    background: #059669;
+    border: 1px solid #10b981;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 800;
+    padding: 12px;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+
+  <!-- ÜST ÇUBUK -->
+  <header>
+    <div class="baslik-sol">
+      <div class="app-adi">📱 Web Güvenliği <span style="font-size:11px;color:#34d399;font-weight:700">Mobil OMR</span></div>
+      <div class="sinav-adi" id="lbl-sinav-adi">Sınav Bekleniyor...</div>
+    </div>
+    <div class="ust-butonlar">
+      <button type="button" class="btn-ikon birincil" id="btn-qr-yukle" title="Sınav QR'ını Tara veya Yapıştır">📷 Sınav QR</button>
+      <button type="button" class="btn-ikon" id="btn-ayarlar" title="Yardım & Demo">⚙️ Demo</button>
+    </div>
+  </header>
+
+  <!-- KAMERA VİZÖR ALANI -->
+  <div class="vizor-kapsayici">
+    <video id="kamera-video" autoplay playsinline muted></video>
+    <canvas id="omr-overlay"></canvas>
+    <canvas id="islem-canvas" width="480" height="320" style="display:none"></canvas>
+
+    <div class="reticle-cerceve">
+      <div class="reticle-kose tl"></div>
+      <div class="reticle-kose tr"></div>
+      <div class="reticle-kose bl"></div>
+      <div class="reticle-kose br"></div>
+    </div>
+
+    <div class="reticle-bilgi" id="lbl-reticle-durum">Sınav kağıdını çerçeveye hizalayın</div>
+  </div>
+
+  <!-- KAMERA ARAÇ ÇUBUĞU -->
+  <div class="kamera-araclar">
+    <div class="durum-metin" id="lbl-kamera-durum">
+      <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#10b981"></span>
+      <span id="durum-yazi">Kamera Hazır (Otomatik Algılama Açık)</span>
+    </div>
+    <div style="display:flex;gap:6px">
+      <button type="button" class="btn-ikon" id="btn-simule-oku" style="border-color:#38bdf8;color:#38bdf8" title="Fiziksel kağıt olmadan test et">✨ Test Et</button>
+      <button type="button" class="btn-ikon" id="btn-fener" style="display:none">🔦 Fener</button>
+    </div>
+  </div>
+
+  <!-- DEV YEŞİL PUAN KARTI ALANI -->
+  <div class="puan-kart-alani" id="alan-puan-karti">
+    <div class="dev-puan-karti" id="kart-dev-puan">
+      <div class="puan-kart-ust">
+        <div class="ogrenci-kimlik">
+          <div class="ogrenci-no-buyuk" id="lbl-ogr-no">257419026</div>
+          <div class="ogrenci-ad" id="lbl-ogr-ad">Mehmet Kaya</div>
+        </div>
+        <div class="grup-rozet" id="lbl-grup-rozet">● A GRUBU ✓</div>
+      </div>
+      <div class="dev-puan-deger">
+        <span id="lbl-puan-sayi">86</span>
+        <span class="puan-yuz">/ 100</span>
+      </div>
+      <div class="puan-detay-satir">
+        <span id="lbl-detay-dy">3A Doğru/Yanlış: 9/10 (36p)</span>
+        <span id="lbl-detay-cs">3B Test: 8/10 (50p)</span>
+      </div>
+      <div class="notu-yaz-uyari">
+        ✍️ Notu kağıdın üzerine kırmızı kalemle yazıp sıradaki kağıda geçebilirsiniz.
+      </div>
+    </div>
+
+    <!-- ÇAKIŞMA SEÇİM ALANI (SON 2 RAKAM ÇOKLU EŞLEŞME) -->
+    <div class="cakisma-alani" id="alan-cakisma" style="display:none">
+      <div class="cakisma-baslik">
+        <span>🔔 Sonu «<b id="lbl-cakisma-son2" style="color:#fef08a">26</b>» Olan Öğrenciler</span>
+        <span style="font-size:11px;color:#cbd5e1">Kağıttaki isme dokunun 👇</span>
+      </div>
+      <div class="cakisma-butonlar" id="kutu-cakisma-butonlar"></div>
+    </div>
+  </div>
+
+  <!-- OKUNAN KAĞITLAR GEÇMİŞİ & TOPLU KOPYALA -->
+  <div class="gecmis-alani">
+    <div class="gecmis-baslik-bar">
+      <div class="gecmis-baslik" id="lbl-gecmis-sayac">Okunan Kağıtlar (0)</div>
+      <button type="button" class="btn-ikon" id="btn-toplu-kopyala" style="background:#0284c7;border-color:#38bdf8;color:#fff">📋 Paketi Kopyala</button>
+    </div>
+    <div class="gecmis-liste" id="kutu-gecmis-liste">
+      <div style="font-size:12px;color:var(--soluk);text-align:center;padding:12px">Henüz kağıt taranmadı.</div>
+    </div>
+  </div>
+
+  <!-- MODAL: SINAV KURULUM QR KODU VEYA JSON KODU -->
+  <div class="modal-perde" id="modal-kurulum" style="display:none">
+    <div class="modal-kutu">
+      <div class="modal-baslik">
+        <span>📱 Sınav Cevap Anahtarı Yükle</span>
+        <button type="button" class="btn-ikon" id="btn-modal-kapat">✖</button>
+      </div>
+      <p style="font-size:12px;color:var(--soluk);margin-bottom:10px">
+        Bilgisayarınızdaki <b>Eğitmen Portalı</b>'ndan «📱 Sınav QR Kodu» açıp telefonunuzun normal kamerasıyla okutabilir veya kurulum kodunu buraya yapıştırabilirsiniz:
+      </p>
+      <textarea class="kod-kutu" id="txt-kurulum-json" placeholder='{"sinav":"Web Güvenliği Ara Sınavı","A":{"dy":"DDYDDYDDYD","cs":"ACEBDACEBD"},...}'></textarea>
+      <button type="button" class="btn-genis" id="btn-kurulum-yukle">✅ Sınavı Telefona Yükle</button>
+    </div>
+  </div>
+
+<script>
+(function() {
+  'use strict';
+
+  // 1) SES VE TİTREŞİM GERİ BİLDİRİMİ
+  let audioCtx = null;
+  function bipSesiCal() {
+    try {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, audioCtx.currentTime); // A5 nota
+      gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.12);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.12);
+    } catch (e) {}
+    if (navigator.vibrate) {
+      try { navigator.vibrate([80, 40, 80]); } catch (e) {}
+    }
+  }
+
+  // 2) SINAV VERİSİ YÖNETİMİ (LOCALSTORAGE)
+  const DEPO_SINAV = 'wg_mobil_optik_sinav';
+  const DEPO_GECMIS = 'wg_mobil_optik_gecmis';
+
+  const VARSAYILAN_SINAV = {
+    sinav: 'Web Güvenliği Ara Sınavı (Güz)',
+    puan_dy: 4,
+    puan_cs: 6,
+    A: { dy: 'DDYDDYDDYD', cs: 'ACEBDACEBD' },
+    B: { dy: 'YDYYDYDDYD', cs: 'CEBDACEBDA' },
+    ogrenciler: [
+      { no: '237419018', ad: 'Ahmet Yılmaz' },
+      { no: '237419026', ad: 'Ali Demir' },
+      { no: '257419026', ad: 'Mehmet Kaya' },
+      { no: '267419026', ad: 'Ayşe Demir' },
+      { no: '247411072', ad: 'Fatma Şahin' },
+      { no: '257419015', ad: 'Burak Koç' },
+      { no: '267419015', ad: 'Cem Yıldız' },
+      { no: '257411015', ad: 'Canan Aslan' },
+      { no: '257432015', ad: 'Deniz Çelik' },
+      { no: '257419039', ad: 'Emre Öztürk' }
+    ]
+  };
+
+  let aktifSinav = null;
+  let tarananGecmis = [];
+
+  function verileriYukle() {
+    try {
+      const ham = localStorage.getItem(DEPO_SINAV);
+      aktifSinav = ham ? JSON.parse(ham) : VARSAYILAN_SINAV;
+    } catch (e) {
+      aktifSinav = VARSAYILAN_SINAV;
+    }
+    try {
+      const gHam = localStorage.getItem(DEPO_GECMIS);
+      tarananGecmis = gHam ? JSON.parse(gHam) : [];
+    } catch (e) {
+      tarananGecmis = [];
+    }
+    sinavBilgiGuncelle();
+    gecmisTabloGuncelle();
+  }
+
+  function sinavKaydet(veri) {
+    aktifSinav = veri;
+    localStorage.setItem(DEPO_SINAV, JSON.stringify(veri));
+    sinavBilgiGuncelle();
+  }
+
+  function gecmisKaydet() {
+    localStorage.setItem(DEPO_GECMIS, JSON.stringify(tarananGecmis));
+    gecmisTabloGuncelle();
+  }
+
+  function sinavBilgiGuncelle() {
+    const lbl = document.getElementById('lbl-sinav-adi');
+    if (aktifSinav) {
+      const dySay = aktifSinav.A && aktifSinav.A.dy ? aktifSinav.A.dy.length : 10;
+      const csSay = aktifSinav.A && aktifSinav.A.cs ? aktifSinav.A.cs.length : 10;
+      const ogrSay = Array.isArray(aktifSinav.ogrenciler) ? aktifSinav.ogrenciler.length : 0;
+      lbl.textContent = `${aktifSinav.sinav || 'Web Güvenliği'} (${dySay} D/Y, ${csSay} Test · ${ogrSay} Öğrenci)`;
+    } else {
+      lbl.textContent = '⚠️ Sınav Bekleniyor (QR Tara)';
+    }
+  }
+
+  // URL HASH ÜZERİNDEN OTOMATİK KURULUM ALMA (#setup=...)
+  function urlHashDenetle() {
+    const hash = window.location.hash || '';
+    if (hash.startsWith('#setup=')) {
+      try {
+        const raw = decodeURIComponent(hash.slice(7));
+        const jsonStr = atob(raw);
+        const veri = JSON.parse(jsonStr);
+        sinavKaydet(veri);
+        window.history.replaceState(null, '', window.location.pathname);
+        alert('✅ Sınav Başarıyla Yüklendi:\n' + (veri.sinav || 'Sınav'));
+      } catch (e) {
+        try {
+          const veri = JSON.parse(decodeURIComponent(hash.slice(7)));
+          sinavKaydet(veri);
+          window.history.replaceState(null, '', window.location.pathname);
+        } catch (err) {}
+      }
+    }
+  }
+
+  // 3) PUAN HESAPLAMA MOTORU
+  function optikPuanHesapla(grupHarf, dyDizi, csDizi) {
+    if (!aktifSinav) return { puan: 0, dyD: 0, dyT: 0, csD: 0, csT: 0 };
+    const gAnahtar = aktifSinav[grupHarf] || aktifSinav.A || { dy: '', cs: '' };
+    const pDy = Number(aktifSinav.puan_dy) || 4;
+    const pCs = Number(aktifSinav.puan_cs) || 6;
+
+    let dyDogru = 0;
+    const dyHedef = gAnahtar.dy || '';
+    for (let i = 0; i < dyHedef.length; i++) {
+      if (dyDizi[i] && dyDizi[i] === dyHedef[i]) dyDogru++;
+    }
+
+    let csDogru = 0;
+    const csHedef = gAnahtar.cs || '';
+    for (let i = 0; i < csHedef.length; i++) {
+      if (csDizi[i] && csDizi[i] === csHedef[i]) csDogru++;
+    }
+
+    const toplamPuan = Math.min(100, (dyDogru * pDy) + (csDogru * pCs));
+    return {
+      toplamPuan,
+      dyDogru,
+      dyToplam: dyHedef.length,
+      dyPuan: dyDogru * pDy,
+      csDogru,
+      csToplam: csHedef.length,
+      csPuan: csDogru * pCs
+    };
+  }
+
+  // 4) DEV YEŞİL PUAN KARTINI GÖSTER
+  function devPuanKartiGoster(kayit) {
+    document.getElementById('lbl-ogr-no').textContent = kayit.no;
+    document.getElementById('lbl-ogr-ad').textContent = kayit.ad;
+    document.getElementById('lbl-grup-rozet').textContent = `● ${kayit.grup} GRUBU ✓`;
+    document.getElementById('lbl-puan-sayi').textContent = kayit.puan;
+    document.getElementById('lbl-detay-dy').textContent = `3A D/Y: ${kayit.dyDogru}/${kayit.dyToplam} (${kayit.dyPuan}p)`;
+    document.getElementById('lbl-detay-cs').textContent = `3B Test: ${kayit.csDogru}/${kayit.csToplam} (${kayit.csPuan}p)`;
+
+    const kart = document.getElementById('kart-dev-puan');
+    kart.style.display = 'block';
+    kart.style.animation = 'none';
+    void kart.offsetWidth;
+    kart.style.animation = 'kartPari 0.3s ease';
+
+    document.getElementById('alan-cakisma').style.display = 'none';
+    bipSesiCal();
+  }
+
+  // 5) ÇAKIŞMA SEÇİM ÇUBUĞU
+  function cakismaSeciminiAc(son2, grup, dyDizi, csDizi, adaylar) {
+    const alan = document.getElementById('alan-cakisma');
+    const kutu = document.getElementById('kutu-cakisma-butonlar');
+    document.getElementById('lbl-cakisma-son2').textContent = son2;
+    kutu.innerHTML = '';
+
+    adaylar.forEach(ad => {
+      const ztnOkundu = tarananGecmis.some(g => g.no === ad.no);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn-aday' + (ztnOkundu ? ' okundu' : '');
+      btn.innerHTML = `<span><b>${ad.no}</b> — ${ad.ad}</span> <span>${ztnOkundu ? '✓ Zaten Okundu' : '👉 Seç & Puanla'}</span>`;
+      btn.onclick = () => {
+        kagitKaydetVeGoster(ad.no, ad.ad, grup, dyDizi, csDizi);
+      };
+      kutu.appendChild(btn);
+    });
+
+    alan.style.display = 'block';
+    document.getElementById('lbl-reticle-durum').textContent = `Sonu ${son2} olan ${adaylar.length} öğrenci bulundu — Seçiniz`;
+  }
+
+  function kagitKaydetVeGoster(ogrNo, ogrAd, grup, dyDizi, csDizi) {
+    const skor = optikPuanHesapla(grup, dyDizi, csDizi);
+    const kayit = {
+      no: ogrNo,
+      ad: ogrAd || 'Öğrenci',
+      grup: grup,
+      puan: skor.toplamPuan,
+      dyDogru: skor.dyDogru,
+      dyToplam: skor.dyToplam,
+      dyPuan: skor.dyPuan,
+      csDogru: skor.csDogru,
+      csToplam: skor.csToplam,
+      csPuan: skor.csPuan,
+      dyDizi: dyDizi,
+      csDizi: csDizi,
+      saat: new Date().toLocaleTimeString('tr-TR', { hour12: false })
+    };
+
+    // Varsa eski kaydı güncelle, yoksa başa ekle
+    const varIdx = tarananGecmis.findIndex(g => g.no === ogrNo);
+    if (varIdx >= 0) tarananGecmis[varIdx] = kayit;
+    else tarananGecmis.unshift(kayit);
+
+    gecmisKaydet();
+    devPuanKartiGoster(kayit);
+  }
+
+  function gecmisTabloGuncelle() {
+    const lbl = document.getElementById('lbl-gecmis-sayac');
+    const kutu = document.getElementById('kutu-gecmis-liste');
+    lbl.textContent = `Okunan Kağıtlar (${tarananGecmis.length})`;
+
+    if (!tarananGecmis.length) {
+      kutu.innerHTML = '<div style="font-size:12px;color:var(--soluk);text-align:center;padding:12px">Henüz kağıt taranmadı.</div>';
+      return;
+    }
+
+    kutu.innerHTML = tarananGecmis.map(g => `
+      <div class="gecmis-kart">
+        <div class="gecmis-sol">
+          <div class="gecmis-no">${g.no} — ${g.ad}</div>
+          <div style="color:var(--soluk);font-size:11px">${g.grup} Grubu · D/Y: ${g.dyDogru}/${g.dyToplam} · Test: ${g.csDogru}/${g.csToplam} · ${g.saat}</div>
+        </div>
+        <div class="gecmis-puan">${g.puan}</div>
+      </div>
+    `).join('');
+  }
+
+  // 6) KAMERA YÖNETİMİ
+  const video = document.getElementById('kamera-video');
+  let stream = null;
+
+  async function kamerayiBaslat() {
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: 'environment',
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          }
+        });
+        video.srcObject = stream;
+        document.getElementById('durum-yazi').textContent = 'Kamera Canlı — Kağıt Taranıyor';
+      } catch (e) {
+        document.getElementById('durum-yazi').textContent = 'Kamera Açılmadı (İzin Veriniz)';
+      }
+    }
+  }
+
+  // 7) TEST & SİMÜLASYON DÜĞMESİ
+  document.getElementById('btn-simule-oku').addEventListener('click', () => {
+    // Sınavdan örnek bir son-2 numara üret (Örn: '26' - çakışmalı veya '72' - tekil)
+    const ornekSon2 = Math.random() > 0.4 ? '26' : '72';
+    const ornekGrup = Math.random() > 0.5 ? 'A' : 'B';
+    const gAnahtar = aktifSinav[ornekGrup] || aktifSinav.A;
+    // 1-2 hatayla gerçekçi cevap
+    const dyDizi = (gAnahtar.dy || 'DDYDDYDDYD').split('').map((c, i) => i === 2 ? (c === 'D' ? 'Y' : 'D') : c).join('');
+    const csDizi = (gAnahtar.cs || 'ACEBDACEBD').split('').map((c, i) => i === 1 ? 'B' : c).join('');
+
+    // Öğrenci listesinden sonu bu 2 rakamla bitenleri bul
+    const adaylar = (aktifSinav.ogrenciler || []).filter(o => String(o.no).endsWith(ornekSon2));
+
+    if (adaylar.length === 1) {
+      kagitKaydetVeGoster(adaylar[0].no, adaylar[0].ad, ornekGrup, dyDizi, csDizi);
+    } else if (adaylar.length > 1) {
+      cakismaSeciminiAc(ornekSon2, ornekGrup, dyDizi, csDizi, adaylar);
+    } else {
+      kagitKaydetVeGoster('2574190' + ornekSon2, 'Öğrenci (' + ornekSon2 + ')', ornekGrup, dyDizi, csDizi);
+    }
+  });
+
+  // 8) TOPLU NOT PAKETİNİ KOPYALA (MASAÜSTÜ PORTALINA YAPIŞTIRMAK İÇİN)
+  document.getElementById('btn-toplu-kopyala').addEventListener('click', () => {
+    if (!tarananGecmis.length) {
+      alert('Kopyalanacak taranmış kağıt yok!');
+      return;
+    }
+    const paket = tarananGecmis.map(g => `${g.no}|${g.grup}|${g.dyDizi}|${g.csDizi}|${g.puan}`).join('\n');
+    navigator.clipboard.writeText(paket).then(() => {
+      alert(`✅ ${tarananGecmis.length} Öğrencinin Not Paketi Kopyalandı!\nBilgisayarınızdaki «📥 Toplu Optik Paketi Aktar» kutusuna yapıştırabilirsiniz.`);
+    }).catch(() => {
+      prompt('Not Paketini Kopyalayın:', paket);
+    });
+  });
+
+  // 9) MODAL VE KURULUM YÖNETİMİ
+  const modal = document.getElementById('modal-kurulum');
+  document.getElementById('btn-qr-yukle').addEventListener('click', () => {
+    modal.style.display = 'flex';
+  });
+  document.getElementById('btn-modal-kapat').addEventListener('click', () => {
+    modal.style.display = 'none';
+  });
+  document.getElementById('btn-kurulum-yukle').addEventListener('click', () => {
+    const val = document.getElementById('txt-kurulum-json').value.trim();
+    if (!val) return;
+    try {
+      const veri = JSON.parse(val);
+      sinavKaydet(veri);
+      modal.style.display = 'none';
+      alert('✅ Sınav Başarıyla Yüklendi!');
+    } catch (e) {
+      alert('⚠️ Geçersiz JSON kodu!');
+    }
+  });
+
+  document.getElementById('btn-ayarlar').addEventListener('click', () => {
+    alert('💡 Mobil Okuyucu İpuçları:\n1. Masada kağıdı telefonun altına sürün.\n2. Son 2 rakamı okuduğunda çakışma varsa ekrandaki öğrenci ismine dokunun.\n3. Notu kırmızı kalemle kağıda yazın.\n4. İşiniz bitince "📋 Paketi Kopyala" ile bilgisayara aktarabilirsiniz.');
+  });
+
+  // BAŞLAT
+  verileriYukle();
+  urlHashDenetle();
+  kamerayiBaslat();
+})();
+</script>
+</body>
+</html>
