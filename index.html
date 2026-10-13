@@ -612,6 +612,19 @@
 
   function sinavKaydet(veri) {
     if (!veri) return;
+    if (Array.isArray(veri)) {
+      if (!aktifSinav || Array.isArray(aktifSinav)) aktifSinav = Object.assign({}, VARSAYILAN_SINAV);
+      aktifSinav = Object.assign({}, aktifSinav, { ogrenciler: veri });
+      localStorage.setItem(DEPO_SINAV, JSON.stringify(aktifSinav));
+      sinavBilgiGuncelle();
+      return;
+    }
+    if (typeof veri === 'object' && Array.isArray(veri.ogrenciler) && !veri.A && !veri.B && aktifSinav && !Array.isArray(aktifSinav)) {
+      aktifSinav = Object.assign({}, aktifSinav, { ogrenciler: veri.ogrenciler });
+      localStorage.setItem(DEPO_SINAV, JSON.stringify(aktifSinav));
+      sinavBilgiGuncelle();
+      return;
+    }
     const eskiSinavAd = aktifSinav ? (aktifSinav.sinav || '') : '';
     const degisti = (veri.sinav && veri.sinav !== eskiSinavAd) ||
       (anahtarHash(veri) !== anahtarHash(aktifSinav));
@@ -672,25 +685,40 @@
       return { toplamPuan: 0, dyDogru: 0, dyToplam: 0, dyPuan: 0, csDogru: 0, csToplam: 0, csPuan: 0, gecersizGrup: true };
     }
 
+    const dyHedef = gAnahtar.dy || '';
+    const csHedef = gAnahtar.cs || '';
     const pDy = (aktifSinav.puan_dy !== undefined && aktifSinav.puan_dy !== null && !isNaN(Number(aktifSinav.puan_dy))) ? Number(aktifSinav.puan_dy) : 3;
     const pCs = (aktifSinav.puan_cs !== undefined && aktifSinav.puan_cs !== null && !isNaN(Number(aktifSinav.puan_cs))) ? Number(aktifSinav.puan_cs) : 4;
+    const dyDiziPuanlar = (pDy > 0 && Array.isArray(aktifSinav.puanlar_dy) && aktifSinav.puanlar_dy.length === dyHedef.length)
+      ? aktifSinav.puanlar_dy
+      : Array.from({ length: dyHedef.length }, () => pDy);
+    const csDiziPuanlar = (pCs > 0 && Array.isArray(aktifSinav.puanlar_cs) && aktifSinav.puanlar_cs.length === csHedef.length)
+      ? aktifSinav.puanlar_cs
+      : Array.from({ length: csHedef.length }, () => pCs);
 
     let dyDogru = 0;
-    const dyHedef = gAnahtar.dy || '';
+    let dyPuanHam = 0;
     for (let i = 0; i < dyHedef.length; i++) {
-      if (dyDizi[i] && dyDizi[i] === dyHedef[i]) dyDogru++;
+      if (dyDizi[i] && dyDizi[i] === dyHedef[i]) {
+        dyDogru++;
+        dyPuanHam += Number(dyDiziPuanlar[i]) || 0;
+      }
     }
 
     let csDogru = 0;
-    const csHedef = gAnahtar.cs || '';
+    let csPuanHam = 0;
     for (let i = 0; i < csHedef.length; i++) {
-      if (csDizi[i] && csDizi[i] === csHedef[i]) csDogru++;
+      if (csDizi[i] && csDizi[i] === csHedef[i]) {
+        csDogru++;
+        csPuanHam += Number(csDiziPuanlar[i]) || 0;
+      }
     }
 
-    const dyPuan = +(dyDogru * pDy).toFixed(2);
-    const csPuan = +(csDogru * pCs).toFixed(2);
+    const dyPuan = +dyPuanHam.toFixed(2);
+    const csPuan = +csPuanHam.toFixed(2);
     const hamToplam = +(dyPuan + csPuan).toFixed(2);
-    const optikTam = Number(aktifSinav.optik_tam_puan) || +(dyHedef.length * pDy + csHedef.length * pCs).toFixed(2);
+    const tamDiziToplam = +(dyDiziPuanlar.reduce((a, b) => a + (Number(b) || 0), 0) + csDiziPuanlar.reduce((a, b) => a + (Number(b) || 0), 0)).toFixed(2);
+    const optikTam = (pDy === 0 && pCs === 0) ? 0 : (Number(aktifSinav.optik_tam_puan) || tamDiziToplam);
     const toplamPuan = Math.min(optikTam, hamToplam);
     const simTam = Number(aktifSinav.sim_tam_puan) || 0;
 
@@ -804,12 +832,118 @@
     `).join('');
   }
 
-  // 6) KAMERA YÖNETİMİ & GERÇEK ZAMANLI PİKSEL ANALİZİ
+  // 6) KAMERA YÖNETİMİ & GERÇEK ZAMANLI OPTİK BALON / KÖŞE ÇÖZÜMLEME MOTORU
   const video = document.getElementById('kamera-video');
   const islemCanvas = document.getElementById('islem-canvas');
   let islemCtx = (islemCanvas && typeof islemCanvas.getContext === 'function') ? islemCanvas.getContext('2d') : null;
   let stream = null;
   let kameraDonguAktif = false;
+  let sonOkunanImza = '';
+
+  function bolgeParlaklikOrt(d, w, h, rx, ry, rw, rh) {
+    const x0 = Math.max(0, Math.floor(rx * w));
+    const y0 = Math.max(0, Math.floor(ry * h));
+    const x1 = Math.min(w, Math.max(x0 + 1, Math.floor((rx + rw) * w)));
+    const y1 = Math.min(h, Math.max(y0 + 1, Math.floor((ry + rh) * h)));
+    let top = 0;
+    let say = 0;
+    for (let y = y0; y < y1; y++) {
+      for (let x = x0; x < x1; x++) {
+        const idx = (y * w + x) * 4;
+        top += (d[idx] * 0.299 + d[idx + 1] * 0.587 + d[idx + 2] * 0.114);
+        say++;
+      }
+    }
+    return say > 0 ? (top / say) : 0;
+  }
+
+  function kameraOmrCozumle(d, w, h) {
+    // 1. Köşe hizalama işaretleri (4 siyah fiducial kutu: sol-üst, sağ-üst, sol-alt, sağ-alt)
+    const solUst = bolgeParlaklikOrt(d, w, h, 0.02, 0.03, 0.05, 0.07);
+    const sagUst = bolgeParlaklikOrt(d, w, h, 0.93, 0.03, 0.05, 0.07);
+    const solAlt = bolgeParlaklikOrt(d, w, h, 0.02, 0.90, 0.05, 0.07);
+    const sagAlt = bolgeParlaklikOrt(d, w, h, 0.93, 0.90, 0.05, 0.07);
+    // 2. Kağıt iç zemin kontrolü (hem sol iç hem sağ iç bölge açık renk kağıt olmalı; 2 dikey blok sahte görüntüyü reddeder)
+    const solIcZemin = bolgeParlaklikOrt(d, w, h, 0.22, 0.04, 0.20, 0.08);
+    const sagIcZemin = bolgeParlaklikOrt(d, w, h, 0.58, 0.04, 0.20, 0.08);
+    const kagitZeminiAcik = solIcZemin > 175 && sagIcZemin > 175 && Math.abs(solIcZemin - sagIcZemin) < 45;
+    const dortKoseSiyah = solUst < 95 && sagUst < 95 && solAlt < 95 && sagAlt < 95;
+    if (!kagitZeminiAcik || !dortKoseSiyah) {
+      return { kagitVar: false, ortZemin: (solIcZemin + sagIcZemin) / 2 };
+    }
+
+    // 3. Öğrenci No Son 2 Rakam (Onlar ve Birler sütunu: 0..9 balon ızgarası)
+    const esikParlaklik = Math.min(solIcZemin, sagIcZemin) * 0.68;
+    let onlarBasamak = -1;
+    let onlarSayac = 0;
+    let birlerBasamak = -1;
+    let birlerSayac = 0;
+    for (let r = 0; r < 10; r++) {
+      const ry = 0.20 + r * 0.065;
+      const pOn = bolgeParlaklikOrt(d, w, h, 0.10, ry, 0.035, 0.045);
+      const pBir = bolgeParlaklikOrt(d, w, h, 0.16, ry, 0.035, 0.045);
+      if (pOn < esikParlaklik) { onlarBasamak = r; onlarSayac++; }
+      if (pBir < esikParlaklik) { birlerBasamak = r; birlerSayac++; }
+    }
+
+    // 4. Kitapçık Grubu (A, B, C, D balonları)
+    const gruplar = ['A', 'B', 'C', 'D'];
+    let seciliGrup = '';
+    let grupSayac = 0;
+    for (let g = 0; g < 4; g++) {
+      const gx = 0.28 + g * 0.06;
+      const pGrup = bolgeParlaklikOrt(d, w, h, gx, 0.14, 0.04, 0.05);
+      if (pGrup < esikParlaklik) { seciliGrup = gruplar[g]; grupSayac++; }
+    }
+
+    const gAnahtar = (aktifSinav && seciliGrup && aktifSinav[seciliGrup]) || (aktifSinav && aktifSinav.A) || { dy: 'DDYDDYDDYD', cs: 'ACEBDACEBD' };
+    const dySay = (gAnahtar.dy || 'DDYDDYDDYD').length;
+    const csSay = (gAnahtar.cs || 'ACEBDACEBD').length;
+
+    // 5. D/Y Balon Izgarası (D ve Y sütunları)
+    let dyDizi = '';
+    for (let i = 0; i < dySay; i++) {
+      const ry = 0.24 + (i * (0.60 / Math.max(1, dySay)));
+      const pD = bolgeParlaklikOrt(d, w, h, 0.30, ry, 0.04, 0.04);
+      const pY = bolgeParlaklikOrt(d, w, h, 0.38, ry, 0.04, 0.04);
+      const dDolu = pD < esikParlaklik;
+      const yDolu = pY < esikParlaklik;
+      if (dDolu && yDolu) dyDizi += 'X';
+      else if (dDolu) dyDizi += 'D';
+      else if (yDolu) dyDizi += 'Y';
+      else dyDizi += '-';
+    }
+
+    // 6. Çoktan Seçmeli Test Balon Izgarası (A, B, C, D, E sütunları)
+    const siklar = ['A', 'B', 'C', 'D', 'E'];
+    let csDizi = '';
+    for (let i = 0; i < csSay; i++) {
+      const ry = 0.24 + (i * (0.60 / Math.max(1, csSay)));
+      let isaretlenen = [];
+      for (let s = 0; s < 5; s++) {
+        const sx = 0.54 + s * 0.065;
+        const pS = bolgeParlaklikOrt(d, w, h, sx, ry, 0.04, 0.04);
+        if (pS < esikParlaklik) isaretlenen.push(siklar[s]);
+      }
+      if (isaretlenen.length === 1) csDizi += isaretlenen[0];
+      else if (isaretlenen.length > 1) csDizi += 'X';
+      else csDizi += '-';
+    }
+
+    const gecerliKimlik = onlarSayac === 1 && birlerSayac === 1;
+    const gecerliGrup = grupSayac === 1;
+    const son2 = gecerliKimlik ? `${onlarBasamak}${birlerBasamak}` : '';
+
+    return {
+      kagitVar: true,
+      gecerliKimlik,
+      gecerliGrup,
+      son2,
+      grup: seciliGrup,
+      dyDizi,
+      csDizi
+    };
+  }
 
   function kameraKaresiAnalizEt() {
     if (!kameraDonguAktif || !video || video.readyState !== 4) {
@@ -818,29 +952,35 @@
     }
     try {
       if (islemCtx && islemCanvas) {
-        islemCtx.drawImage(video, 0, 0, islemCanvas.width, islemCanvas.height);
-        const cerceve = islemCtx.getImageData(0, 0, islemCanvas.width, islemCanvas.height);
+        const w = islemCanvas.width || 480;
+        const h = islemCanvas.height || 320;
+        islemCtx.drawImage(video, 0, 0, w, h);
+        const cerceve = islemCtx.getImageData(0, 0, w, h);
         const d = cerceve.data;
-        let toplamParlaklik = 0;
-        let toplamKare = 0;
-        const pikselAdedi = d.length / 4;
-        const ornekAdedi = pikselAdedi / 4;
-        for (let i = 0; i < d.length; i += 16) {
-          const lum = (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
-          toplamParlaklik += lum;
-          toplamKare += lum * lum;
-        }
-        const ortParlaklik = toplamParlaklik / ornekAdedi;
-        const varyans = (toplamKare / ornekAdedi) - (ortParlaklik * ortParlaklik);
-        const stdDev = Math.sqrt(Math.max(0, varyans));
 
         const durumYazi = document.getElementById('durum-yazi');
         const reticleDurum = document.getElementById('lbl-reticle-durum');
-        // Kağıt ve form algılama: Hem optik form beyazlığı (ortParlaklik), hem siyah işaret/kenar kontrastı (stdDev >= 22) gereklidir
-        if (ortParlaklik > 120 && ortParlaklik < 245 && stdDev >= 22) {
-          if (durumYazi) durumYazi.textContent = 'Kamera Canlı — Kağıt Algılanıyor';
-          if (reticleDurum) reticleDurum.textContent = 'Kağıt algılandı — Hizalamayı koruyun';
-        } else if (ortParlaklik <= 60) {
+        const omr = kameraOmrCozumle(d, w, h);
+
+        if (omr.kagitVar) {
+          if (omr.gecerliKimlik && omr.gecerliGrup) {
+            if (durumYazi) durumYazi.textContent = 'Kamera Canlı — Optik Form Okundu';
+            if (reticleDurum) reticleDurum.textContent = `Öğrenci Son-2: ${omr.son2} · ${omr.grup} Grubu`;
+            const imza = `${omr.son2}|${omr.grup}|${omr.dyDizi}|${omr.csDizi}`;
+            if (imza !== sonOkunanImza) {
+              sonOkunanImza = imza;
+              const adaylar = (aktifSinav && Array.isArray(aktifSinav.ogrenciler) ? aktifSinav.ogrenciler : []).filter(o => String(o.no).endsWith(omr.son2));
+              if (adaylar.length === 1) {
+                kagitKaydetVeGoster(adaylar[0].no, adaylar[0].ad, omr.grup, omr.dyDizi, omr.csDizi);
+              } else if (adaylar.length > 1) {
+                cakismaSeciminiAc(omr.son2, omr.grup, omr.dyDizi, omr.csDizi, adaylar);
+              }
+            }
+          } else {
+            if (durumYazi) durumYazi.textContent = 'Kamera Canlı — Kağıt Algılanıyor';
+            if (reticleDurum) reticleDurum.textContent = 'Öğrenci no ve grup kodlamasını netleştirin';
+          }
+        } else if (omr.ortZemin <= 60) {
           if (durumYazi) durumYazi.textContent = 'Işık Yetersiz — Ortamı Aydınlatın';
           if (reticleDurum) reticleDurum.textContent = 'Ortam çok karanlık';
         } else {
@@ -903,7 +1043,8 @@
       alert('Kopyalanacak taranmış kağıt yok!');
       return;
     }
-    const paket = tarananGecmis.map(g => `${g.no}|${g.grup}|${g.dyDizi}|${g.csDizi}|${g.puan}`).join('\n');
+    const sinavKimlik = (aktifSinav && aktifSinav.sinavId) || 'SINAV-V1';
+    const paket = tarananGecmis.map(g => `${g.no}|${g.grup}|${g.dyDizi}|${g.csDizi}|${g.puan}|${sinavKimlik}`).join('\n');
     navigator.clipboard.writeText(paket).then(() => {
       alert(`✅ ${tarananGecmis.length} Öğrencinin Not Paketi Kopyalandı!\nBilgisayarınızdaki «📥 Toplu Optik Paketi Aktar» kutusuna yapıştırabilirsiniz.`);
     }).catch(() => {
@@ -924,9 +1065,12 @@
     if (!val) return;
     try {
       const veri = JSON.parse(val);
+      const sadeceSinifMi = Array.isArray(veri) || (veri && typeof veri === 'object' && Array.isArray(veri.ogrenciler) && !veri.A && !veri.B);
       sinavKaydet(veri);
       modal.style.display = 'none';
-      alert('✅ Sınav Başarıyla Yüklendi!');
+      alert(sadeceSinifMi
+        ? `✅ Sınıf Listesi (${(aktifSinav && aktifSinav.ogrenciler ? aktifSinav.ogrenciler.length : 0)} Öğrenci) Mevcut Sınava Birleştirildi!`
+        : '✅ Sınav Başarıyla Yüklendi!');
     } catch (e) {
       alert('⚠️ Geçersiz JSON kodu!');
     }
