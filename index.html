@@ -784,6 +784,7 @@
 
   function kagitKaydetVeGoster(ogrNo, ogrAd, grup, dyDizi, csDizi) {
     const skor = optikPuanHesapla(grup, dyDizi, csDizi);
+    const cokluIsaretUyarisi = Boolean((dyDizi && dyDizi.includes('X')) || (csDizi && csDizi.includes('X')));
     const kayit = {
       no: ogrNo,
       ad: ogrAd || 'Öğrenci',
@@ -799,6 +800,8 @@
       simTamPuan: skor.simTamPuan,
       dyDizi: dyDizi,
       csDizi: csDizi,
+      cokluIsaretUyarisi,
+      durum: cokluIsaretUyarisi ? 'inceleme_bekliyor' : 'onaylandi',
       saat: new Date().toLocaleTimeString('tr-TR', { hour12: false })
     };
 
@@ -824,7 +827,7 @@
     kutu.innerHTML = tarananGecmis.map(g => `
       <div class="gecmis-kart">
         <div class="gecmis-sol">
-          <div class="gecmis-no">${esc(g.no)} — ${esc(g.ad)}</div>
+          <div class="gecmis-no">${esc(g.no)} — ${esc(g.ad)} ${g.cokluIsaretUyarisi ? '<span style="color:#f59e0b;font-size:11px">⚠️ Çoklu İşaret (X)</span>' : ''}</div>
           <div style="color:var(--soluk);font-size:11px">${esc(g.grup)} Grubu · D/Y: ${g.dyDogru}/${g.dyToplam} · Test: ${g.csDogru}/${g.csToplam} · ${esc(g.saat)}</div>
         </div>
         <div class="gecmis-puan">${g.puan}</div>
@@ -832,7 +835,7 @@
     `).join('');
   }
 
-  // 6) KAMERA YÖNETİMİ & GERÇEK ZAMANLI OPTİK BALON / KÖŞE ÇÖZÜMLEME MOTORU
+  // 6) KAMERA YÖNETİMİ & GERÇEK ZAMANLI OPTİK BALON / 4-KÖŞE PERSPEKTİF ÇÖZÜMLEME MOTORU
   const video = document.getElementById('kamera-video');
   const islemCanvas = document.getElementById('islem-canvas');
   let islemCtx = (islemCanvas && typeof islemCanvas.getContext === 'function') ? islemCanvas.getContext('2d') : null;
@@ -857,31 +860,70 @@
     return say > 0 ? (top / say) : 0;
   }
 
+  // 4 köşe hizalama karesini (fiducial) ilgili kadranlarda dinamik tarayarak bulur ve perspektif/bilinear dönüşüm kurar
+  function koseFiducialBul(d, w, h, xMin, xMax, yMin, yMax, beklenenX, beklenenY) {
+    const fw = 0.05;
+    const fh = 0.07;
+    const dogrudan = bolgeParlaklikOrt(d, w, h, beklenenX, beklenenY, fw, fh);
+    if (dogrudan < 95) {
+      return { rx: beklenenX, ry: beklenenY, parlaklik: dogrudan };
+    }
+    let enIyi = { rx: beklenenX, ry: beklenenY, parlaklik: dogrudan };
+    for (let ry = yMin; ry <= yMax; ry += 0.02) {
+      for (let rx = xMin; rx <= xMax; rx += 0.02) {
+        const p = bolgeParlaklikOrt(d, w, h, rx, ry, fw, fh);
+        if (p < enIyi.parlaklik) {
+          enIyi = { rx, ry, parlaklik: p };
+        }
+      }
+    }
+    return enIyi;
+  }
+
   function kameraOmrCozumle(d, w, h) {
-    // 1. Köşe hizalama işaretleri (4 siyah fiducial kutu: sol-üst, sağ-üst, sol-alt, sağ-alt)
-    const solUst = bolgeParlaklikOrt(d, w, h, 0.02, 0.03, 0.05, 0.07);
-    const sagUst = bolgeParlaklikOrt(d, w, h, 0.93, 0.03, 0.05, 0.07);
-    const solAlt = bolgeParlaklikOrt(d, w, h, 0.02, 0.90, 0.05, 0.07);
-    const sagAlt = bolgeParlaklikOrt(d, w, h, 0.93, 0.90, 0.05, 0.07);
-    // 2. Kağıt iç zemin kontrolü (hem sol iç hem sağ iç bölge açık renk kağıt olmalı; 2 dikey blok sahte görüntüyü reddeder)
+    // 1. 4 köşe hizalama karesinin (sol-üst, sağ-üst, sol-alt, sağ-alt) dinamik tespiti
+    const kSolUst = koseFiducialBul(d, w, h, 0.01, 0.14, 0.01, 0.14, 0.02, 0.03);
+    const kSagUst = koseFiducialBul(d, w, h, 0.81, 0.95, 0.01, 0.14, 0.93, 0.03);
+    const kSolAlt = koseFiducialBul(d, w, h, 0.01, 0.14, 0.79, 0.93, 0.02, 0.90);
+    const kSagAlt = koseFiducialBul(d, w, h, 0.81, 0.95, 0.79, 0.93, 0.93, 0.90);
+
+    // 2. Kağıt iç zemin ve kenar izolasyon kontrolü (2 dikey siyah blok gibi form olmayan görüntüleri reddeder)
     const solIcZemin = bolgeParlaklikOrt(d, w, h, 0.22, 0.04, 0.20, 0.08);
     const sagIcZemin = bolgeParlaklikOrt(d, w, h, 0.58, 0.04, 0.20, 0.08);
-    const kagitZeminiAcik = solIcZemin > 175 && sagIcZemin > 175 && Math.abs(solIcZemin - sagIcZemin) < 45;
-    const dortKoseSiyah = solUst < 95 && sagUst < 95 && solAlt < 95 && sagAlt < 95;
+    const solKenarOrta = bolgeParlaklikOrt(d, w, h, kSolUst.rx, 0.45, 0.05, 0.10);
+    const sagKenarOrta = bolgeParlaklikOrt(d, w, h, kSagUst.rx, 0.45, 0.05, 0.10);
+    const kagitZeminiAcik = solIcZemin > 175 && sagIcZemin > 175 && Math.abs(solIcZemin - sagIcZemin) < 45 && solKenarOrta > 140 && sagKenarOrta > 140;
+    const dortKoseSiyah = kSolUst.parlaklik < 95 && kSagUst.parlaklik < 95 && kSolAlt.parlaklik < 95 && kSagAlt.parlaklik < 95;
     if (!kagitZeminiAcik || !dortKoseSiyah) {
       return { kagitVar: false, ortZemin: (solIcZemin + sagIcZemin) / 2 };
     }
 
-    // 3. Öğrenci No Son 2 Rakam (Onlar ve Birler sütunu: 0..9 balon ızgarası)
+    // 4 köşe fiducial noktasına göre bilinear perspektif koordinat haritalama (kanonik [0.02..0.93, 0.03..0.90] referanslı)
+    function omrHaritala(kanonikX, kanonikY) {
+      const u = (kanonikX - 0.02) / (0.93 - 0.02);
+      const v = (kanonikY - 0.03) / (0.90 - 0.03);
+      const ustX = kSolUst.rx * (1 - u) + kSagUst.rx * u;
+      const altX = kSolAlt.rx * (1 - u) + kSagAlt.rx * u;
+      const solY = kSolUst.ry * (1 - v) + kSolAlt.ry * v;
+      const sagY = kSagUst.ry * (1 - v) + kSagAlt.ry * v;
+      return {
+        rx: ustX * (1 - v) + altX * v,
+        ry: solY * (1 - u) + sagY * u
+      };
+    }
+
+    // 3. Öğrenci No Son 2 Rakam (Onlar ve Birler dikey sütunları: 0..9 balon ızgarası)
     const esikParlaklik = Math.min(solIcZemin, sagIcZemin) * 0.68;
     let onlarBasamak = -1;
     let onlarSayac = 0;
     let birlerBasamak = -1;
     let birlerSayac = 0;
     for (let r = 0; r < 10; r++) {
-      const ry = 0.20 + r * 0.065;
-      const pOn = bolgeParlaklikOrt(d, w, h, 0.10, ry, 0.035, 0.045);
-      const pBir = bolgeParlaklikOrt(d, w, h, 0.16, ry, 0.035, 0.045);
+      const ky = 0.20 + r * 0.065;
+      const nOn = omrHaritala(0.10, ky);
+      const nBir = omrHaritala(0.16, ky);
+      const pOn = bolgeParlaklikOrt(d, w, h, nOn.rx, nOn.ry, 0.035, 0.045);
+      const pBir = bolgeParlaklikOrt(d, w, h, nBir.rx, nBir.ry, 0.035, 0.045);
       if (pOn < esikParlaklik) { onlarBasamak = r; onlarSayac++; }
       if (pBir < esikParlaklik) { birlerBasamak = r; birlerSayac++; }
     }
@@ -891,8 +933,8 @@
     let seciliGrup = '';
     let grupSayac = 0;
     for (let g = 0; g < 4; g++) {
-      const gx = 0.28 + g * 0.06;
-      const pGrup = bolgeParlaklikOrt(d, w, h, gx, 0.14, 0.04, 0.05);
+      const nGrup = omrHaritala(0.28 + g * 0.06, 0.14);
+      const pGrup = bolgeParlaklikOrt(d, w, h, nGrup.rx, nGrup.ry, 0.04, 0.05);
       if (pGrup < esikParlaklik) { seciliGrup = gruplar[g]; grupSayac++; }
     }
 
@@ -900,12 +942,14 @@
     const dySay = (gAnahtar.dy || 'DDYDDYDDYD').length;
     const csSay = (gAnahtar.cs || 'ACEBDACEBD').length;
 
-    // 5. D/Y Balon Izgarası (D ve Y sütunları)
+    // 5. D/Y Balon Izgarası (Tek dikey ızgara: D ve Y sütunları, 1..N yukarıdan aşağıya)
     let dyDizi = '';
     for (let i = 0; i < dySay; i++) {
-      const ry = 0.24 + (i * (0.60 / Math.max(1, dySay)));
-      const pD = bolgeParlaklikOrt(d, w, h, 0.30, ry, 0.04, 0.04);
-      const pY = bolgeParlaklikOrt(d, w, h, 0.38, ry, 0.04, 0.04);
+      const ky = 0.24 + (i * (0.60 / Math.max(1, dySay)));
+      const nD = omrHaritala(0.30, ky);
+      const nY = omrHaritala(0.38, ky);
+      const pD = bolgeParlaklikOrt(d, w, h, nD.rx, nD.ry, 0.04, 0.04);
+      const pY = bolgeParlaklikOrt(d, w, h, nY.rx, nY.ry, 0.04, 0.04);
       const dDolu = pD < esikParlaklik;
       const yDolu = pY < esikParlaklik;
       if (dDolu && yDolu) dyDizi += 'X';
@@ -914,15 +958,15 @@
       else dyDizi += '-';
     }
 
-    // 6. Çoktan Seçmeli Test Balon Izgarası (A, B, C, D, E sütunları)
+    // 6. Çoktan Seçmeli Test Balon Izgarası (Tek dikey ızgara: A, B, C, D, E sütunları, 1..N yukarıdan aşağıya)
     const siklar = ['A', 'B', 'C', 'D', 'E'];
     let csDizi = '';
     for (let i = 0; i < csSay; i++) {
-      const ry = 0.24 + (i * (0.60 / Math.max(1, csSay)));
+      const ky = 0.24 + (i * (0.60 / Math.max(1, csSay)));
       let isaretlenen = [];
       for (let s = 0; s < 5; s++) {
-        const sx = 0.54 + s * 0.065;
-        const pS = bolgeParlaklikOrt(d, w, h, sx, ry, 0.04, 0.04);
+        const nS = omrHaritala(0.54 + s * 0.065, ky);
+        const pS = bolgeParlaklikOrt(d, w, h, nS.rx, nS.ry, 0.04, 0.04);
         if (pS < esikParlaklik) isaretlenen.push(siklar[s]);
       }
       if (isaretlenen.length === 1) csDizi += isaretlenen[0];
@@ -933,6 +977,7 @@
     const gecerliKimlik = onlarSayac === 1 && birlerSayac === 1;
     const gecerliGrup = grupSayac === 1;
     const son2 = gecerliKimlik ? `${onlarBasamak}${birlerBasamak}` : '';
+    const cokluIsaretVar = dyDizi.includes('X') || csDizi.includes('X');
 
     return {
       kagitVar: true,
@@ -941,7 +986,8 @@
       son2,
       grup: seciliGrup,
       dyDizi,
-      csDizi
+      csDizi,
+      cokluIsaretVar
     };
   }
 
@@ -964,8 +1010,13 @@
 
         if (omr.kagitVar) {
           if (omr.gecerliKimlik && omr.gecerliGrup) {
-            if (durumYazi) durumYazi.textContent = 'Kamera Canlı — Optik Form Okundu';
-            if (reticleDurum) reticleDurum.textContent = `Öğrenci Son-2: ${omr.son2} · ${omr.grup} Grubu`;
+            if (omr.cokluIsaretVar) {
+              if (durumYazi) durumYazi.textContent = '⚠️ Çoklu İşaret (X) Tespit Edildi — İnceleme Gerekli';
+              if (reticleDurum) reticleDurum.textContent = `⚠️ Çoklu İşaret (X) İnceleme Gerekli — Son-2: ${omr.son2} · ${omr.grup} Grubu`;
+            } else {
+              if (durumYazi) durumYazi.textContent = 'Kamera Canlı — Optik Form Okundu';
+              if (reticleDurum) reticleDurum.textContent = `Öğrenci Son-2: ${omr.son2} · ${omr.grup} Grubu`;
+            }
             const imza = `${omr.son2}|${omr.grup}|${omr.dyDizi}|${omr.csDizi}`;
             if (imza !== sonOkunanImza) {
               sonOkunanImza = imza;

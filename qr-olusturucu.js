@@ -431,27 +431,8 @@
     const ec = errorCorrection !== undefined ? errorCorrection : 0; // 0=M, 1=L, 2=H, 3=Q
     const rawBytes = utf8Encode(String(metin || ''));
     const neededBits = rawBytes.length * 8;
-    let v = selectVersion(ec, neededBits);
+    const v = selectVersion(ec, neededBits);
     if (!v) {
-      if (typeof metin === 'string' && metin.includes('#setup=')) {
-        try {
-          const parts = metin.split('#setup=');
-          let jsonMetin = '';
-          if (typeof Buffer !== 'undefined') jsonMetin = Buffer.from(parts[1], 'base64').toString('utf8');
-          else if (typeof atob !== 'undefined') jsonMetin = decodeURIComponent(escape(atob(parts[1])));
-          if (jsonMetin) {
-            const parsed = JSON.parse(jsonMetin);
-            if (!parsed.sinavId && parsed.ogrenciler && parsed.ogrenciler.length > 15) {
-              parsed.ogrenciler = parsed.ogrenciler.slice(0, 15);
-              const compactJson = JSON.stringify(parsed);
-              const compactB64 = (typeof Buffer !== 'undefined')
-                ? Buffer.from(compactJson, 'utf8').toString('base64')
-                : btoa(unescape(encodeURIComponent(compactJson)));
-              return matrisUret(parts[0] + '#setup=' + compactB64, ec);
-            }
-          }
-        } catch (e) {}
-      }
       const rsBlocks40 = getRsBlocks(40, ec);
       const maxCapBytes = rsBlocks40.reduce((sum, b) => sum + b.dataCount, 0);
       const headerBytes = Math.ceil((4 + lengthInBits(4, 40)) / 8);
