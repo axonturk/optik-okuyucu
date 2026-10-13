@@ -601,12 +601,23 @@
     }
   }
 
+  function anahtarHash(v) {
+    if (!v) return '';
+    return (v.hash || '') + (v.sinavId || '') +
+      (v.A ? v.A.dy + v.A.cs : '') +
+      (v.B ? v.B.dy + v.B.cs : '') +
+      (v.C ? v.C.dy + v.C.cs : '') +
+      (v.D ? v.D.dy + v.D.cs : '');
+  }
+
   function sinavKaydet(veri) {
     if (!veri) return;
     const eskiSinavAd = aktifSinav ? (aktifSinav.sinav || '') : '';
+    const degisti = (veri.sinav && veri.sinav !== eskiSinavAd) ||
+      (anahtarHash(veri) !== anahtarHash(aktifSinav));
     aktifSinav = veri;
     localStorage.setItem(DEPO_SINAV, JSON.stringify(veri));
-    if (veri.sinav && veri.sinav !== eskiSinavAd) {
+    if (degisti) {
       tarananGecmis = [];
       if (typeof localStorage.removeItem === 'function') localStorage.removeItem(DEPO_GECMIS);
       else localStorage.setItem(DEPO_GECMIS, '[]');
@@ -656,7 +667,7 @@
   // 3) PUAN HESAPLAMA MOTORU
   function optikPuanHesapla(grupHarf, dyDizi, csDizi) {
     if (!aktifSinav) return { toplamPuan: 0, dyDogru: 0, dyToplam: 0, dyPuan: 0, csDogru: 0, csToplam: 0, csPuan: 0 };
-    const gAnahtar = (aktifSinav[grupHarf] || (grupHarf === 'A' ? aktifSinav.A : (grupHarf === 'B' ? aktifSinav.B : null)));
+    const gAnahtar = (aktifSinav[grupHarf] || (grupHarf === 'A' ? aktifSinav.A : (grupHarf === 'B' ? aktifSinav.B : (grupHarf === 'C' ? aktifSinav.C : (grupHarf === 'D' ? aktifSinav.D : null)))));
     if (!gAnahtar) {
       return { toplamPuan: 0, dyDogru: 0, dyToplam: 0, dyPuan: 0, csDogru: 0, csToplam: 0, csPuan: 0, gecersizGrup: true };
     }
@@ -678,8 +689,9 @@
 
     const dyPuan = +(dyDogru * pDy).toFixed(2);
     const csPuan = +(csDogru * pCs).toFixed(2);
-    const toplamPuan = +(dyPuan + csPuan).toFixed(2);
+    const hamToplam = +(dyPuan + csPuan).toFixed(2);
     const optikTam = Number(aktifSinav.optik_tam_puan) || +(dyHedef.length * pDy + csHedef.length * pCs).toFixed(2);
+    const toplamPuan = Math.min(optikTam, hamToplam);
     const simTam = Number(aktifSinav.sim_tam_puan) || 0;
 
     return {
@@ -792,9 +804,43 @@
     `).join('');
   }
 
-  // 6) KAMERA YÖNETİMİ
+  // 6) KAMERA YÖNETİMİ & GERÇEK ZAMANLI PİKSEL ANALİZİ
   const video = document.getElementById('kamera-video');
+  const islemCanvas = document.getElementById('islem-canvas');
+  let islemCtx = (islemCanvas && typeof islemCanvas.getContext === 'function') ? islemCanvas.getContext('2d') : null;
   let stream = null;
+  let kameraDonguAktif = false;
+
+  function kameraKaresiAnalizEt() {
+    if (!kameraDonguAktif || !video || video.readyState !== 4) {
+      if (kameraDonguAktif) requestAnimationFrame(kameraKaresiAnalizEt);
+      return;
+    }
+    try {
+      if (islemCtx && islemCanvas) {
+        islemCtx.drawImage(video, 0, 0, islemCanvas.width, islemCanvas.height);
+        const cerceve = islemCtx.getImageData(0, 0, islemCanvas.width, islemCanvas.height);
+        const d = cerceve.data;
+        let toplamParlaklik = 0;
+        const pikselAdedi = d.length / 4;
+        for (let i = 0; i < d.length; i += 16) {
+          toplamParlaklik += (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
+        }
+        const ortParlaklik = toplamParlaklik / (pikselAdedi / 4);
+        const durumYazi = document.getElementById('durum-yazi');
+        const reticleDurum = document.getElementById('lbl-reticle-durum');
+        if (ortParlaklik > 120 && ortParlaklik < 245) {
+          if (durumYazi) durumYazi.textContent = 'Kamera Canlı — Kağıt Algılanıyor';
+          if (reticleDurum) reticleDurum.textContent = 'Kağıt algılandı — Hizalamayı koruyun';
+        } else if (ortParlaklik <= 60) {
+          if (durumYazi) durumYazi.textContent = 'Işık Yetersiz — Ortamı Aydınlatın';
+        } else {
+          if (durumYazi) durumYazi.textContent = 'Kamera Hazır (Kağıdı Çerçeveye Getirin)';
+        }
+      }
+    } catch (e) {}
+    if (kameraDonguAktif) requestAnimationFrame(kameraKaresiAnalizEt);
+  }
 
   async function kamerayiBaslat() {
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
@@ -807,6 +853,11 @@
           }
         });
         video.srcObject = stream;
+        video.onloadedmetadata = () => {
+          video.play();
+          kameraDonguAktif = true;
+          requestAnimationFrame(kameraKaresiAnalizEt);
+        };
         document.getElementById('durum-yazi').textContent = 'Kamera Canlı — Kağıt Taranıyor';
       } catch (e) {
         document.getElementById('durum-yazi').textContent = 'Kamera Açılmadı (İzin Veriniz)';
