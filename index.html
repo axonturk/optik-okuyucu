@@ -822,20 +822,30 @@
         const cerceve = islemCtx.getImageData(0, 0, islemCanvas.width, islemCanvas.height);
         const d = cerceve.data;
         let toplamParlaklik = 0;
+        let toplamKare = 0;
         const pikselAdedi = d.length / 4;
+        const ornekAdedi = pikselAdedi / 4;
         for (let i = 0; i < d.length; i += 16) {
-          toplamParlaklik += (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
+          const lum = (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
+          toplamParlaklik += lum;
+          toplamKare += lum * lum;
         }
-        const ortParlaklik = toplamParlaklik / (pikselAdedi / 4);
+        const ortParlaklik = toplamParlaklik / ornekAdedi;
+        const varyans = (toplamKare / ornekAdedi) - (ortParlaklik * ortParlaklik);
+        const stdDev = Math.sqrt(Math.max(0, varyans));
+
         const durumYazi = document.getElementById('durum-yazi');
         const reticleDurum = document.getElementById('lbl-reticle-durum');
-        if (ortParlaklik > 120 && ortParlaklik < 245) {
+        // Kağıt ve form algılama: Hem optik form beyazlığı (ortParlaklik), hem siyah işaret/kenar kontrastı (stdDev >= 22) gereklidir
+        if (ortParlaklik > 120 && ortParlaklik < 245 && stdDev >= 22) {
           if (durumYazi) durumYazi.textContent = 'Kamera Canlı — Kağıt Algılanıyor';
           if (reticleDurum) reticleDurum.textContent = 'Kağıt algılandı — Hizalamayı koruyun';
         } else if (ortParlaklik <= 60) {
           if (durumYazi) durumYazi.textContent = 'Işık Yetersiz — Ortamı Aydınlatın';
+          if (reticleDurum) reticleDurum.textContent = 'Ortam çok karanlık';
         } else {
           if (durumYazi) durumYazi.textContent = 'Kamera Hazır (Kağıdı Çerçeveye Getirin)';
+          if (reticleDurum) reticleDurum.textContent = 'Optik formu vizöre hizalayınız';
         }
       }
     } catch (e) {}
